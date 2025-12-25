@@ -1,0 +1,83 @@
+:root {
+  font-family: 'Bricolage Grotesque', 'Trebuchet MS', sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #1f2c2b;
+  background-color: #f6ecd9;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --font-body: 'Bricolage Grotesque', 'Trebuchet MS', sans-serif;
+  --font-display: 'Spectral', 'Times New Roman', serif;
+  --font-mono: 'JetBrains Mono', 'Courier New', monospace;
+
+  --sand: #f6ecd9;
+  --sea: #cfe8dd;
+  --mist: #eaf3f1;
+  --ink: #1f2c2b;
+  --ink-soft: #4b6562;
+  --reef: #e7f0ed;
+  --accent: #d47054;
+  --accent-dark: #b85a43;
+  --line: #dccbb4;
+  --card: rgba(255, 255, 255, 0.78);
+  --shadow: 0 20px 40px rgba(51, 72, 68, 0.15);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: linear-gradient(140deg, var(--sand) 0%, var(--sea) 52%, #f0f6f7 100%);
+  color: var(--ink);
+}
+
+a {
+  color: var(--accent-dark);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--accent);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: 999px;
+  padding: 0.5rem 1.1rem;
+  background: var(--accent);
+  color: white;
+  box-shadow: 0 8px 20px rgba(212, 112, 84, 0.25);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(212, 112, 84, 0.3);
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid rgba(212, 112, 84, 0.6);
+  outline-offset: 2px;
+}
