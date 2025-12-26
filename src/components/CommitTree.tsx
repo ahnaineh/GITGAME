@@ -156,12 +156,15 @@ export const CommitTree = () => {
       return
     }
     const updateViewport = () => {
-      setViewport({
-        x: container.scrollLeft / zoom,
-        y: container.scrollTop / zoom,
-        width: container.clientWidth / zoom,
-        height: container.clientHeight / zoom
-      })
+      const rawWidth = container.clientWidth / zoom
+      const rawHeight = container.clientHeight / zoom
+      const viewWidth = Math.min(width, rawWidth)
+      const viewHeight = Math.min(height, rawHeight)
+      const maxX = Math.max(0, width - viewWidth)
+      const maxY = Math.max(0, height - viewHeight)
+      const x = Math.min(maxX, Math.max(0, container.scrollLeft / zoom))
+      const y = Math.min(maxY, Math.max(0, container.scrollTop / zoom))
+      setViewport({ x, y, width: viewWidth, height: viewHeight })
     }
     updateViewport()
     container.addEventListener('scroll', updateViewport)
@@ -170,7 +173,7 @@ export const CommitTree = () => {
       container.removeEventListener('scroll', updateViewport)
       window.removeEventListener('resize', updateViewport)
     }
-  }, [zoom, nodes.length])
+  }, [zoom, nodes.length, width, height])
 
   useEffect(() => {
     if (!canvasRef.current || nodes.length === 0) {
@@ -250,76 +253,78 @@ export const CommitTree = () => {
         </div>
       </div>
 
-      <div
-        className="tree-canvas"
-        ref={canvasRef}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-      >
-        {commits.length === 0 ? (
-          <div className="empty-tree">No commits yet. Your islands are still drifting.</div>
-        ) : (
-          <motion.svg
-            width={scaledWidth}
-            height={scaledHeight}
-            viewBox={`0 0 ${width} ${height}`}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.6 }}
-          >
-            {edges.map((edge) => {
-              if (!edge) {
-                return null
-              }
-              const midY = (edge.y1 + edge.y2) / 2
-              return (
-                <path
-                  key={edge.id}
-                  d={`M ${edge.x1} ${edge.y1} C ${edge.x1} ${midY}, ${edge.x2} ${midY}, ${edge.x2} ${edge.y2}`}
-                  className={`tree-line ${edge.isMerge ? 'merge' : ''}`}
-                  stroke={getLaneColor(edge.lane)}
-                />
-              )
-            })}
+      <div className="tree-wrap">
+        <div
+          className="tree-canvas"
+          ref={canvasRef}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+        >
+          {commits.length === 0 ? (
+            <div className="empty-tree">No commits yet. Your islands are still drifting.</div>
+          ) : (
+            <motion.svg
+              width={scaledWidth}
+              height={scaledHeight}
+              viewBox={`0 0 ${width} ${height}`}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.6 }}
+            >
+              {edges.map((edge) => {
+                if (!edge) {
+                  return null
+                }
+                const midY = (edge.y1 + edge.y2) / 2
+                return (
+                  <path
+                    key={edge.id}
+                    d={`M ${edge.x1} ${edge.y1} C ${edge.x1} ${midY}, ${edge.x2} ${midY}, ${edge.x2} ${edge.y2}`}
+                    className={`tree-line ${edge.isMerge ? 'merge' : ''}`}
+                    stroke={getLaneColor(edge.lane)}
+                  />
+                )
+              })}
 
-            {nodes.map((node) => (
-              <g key={node.id}>
-                <title>{node.fullMessage}</title>
-                <circle cx={node.x} cy={node.y} r={30} className="tree-node" />
-                {repo.head === node.id ? (
-                  <circle cx={node.x} cy={node.y} r={42} className="tree-node head-ring" />
-                ) : null}
-                {node.isMerge ? (
-                  <text x={node.x - 6} y={node.y + 5} className="merge-tag">
-                    M
+              {nodes.map((node) => (
+                <g key={node.id}>
+                  <title>{node.fullMessage}</title>
+                  <circle cx={node.x} cy={node.y} r={30} className="tree-node" />
+                  {repo.head === node.id ? (
+                    <circle cx={node.x} cy={node.y} r={42} className="tree-node head-ring" />
+                  ) : null}
+                  {node.isMerge ? (
+                    <text x={node.x - 6} y={node.y + 5} className="merge-tag">
+                      M
+                    </text>
+                  ) : null}
+                  <text x={node.x + 50} y={node.y + 8} className="tree-label">
+                    {node.message}
                   </text>
-                ) : null}
-                <text x={node.x + 50} y={node.y + 8} className="tree-label">
-                  {node.message}
-                </text>
-                <text x={node.x - 98} y={node.y + 8} className="tree-id">
-                  {node.id}
-                </text>
-              </g>
-            ))}
-
-            {branchLabels.map((label) => {
-              if (!label) {
-                return null
-              }
-              return (
-                <g key={label.name} className={`branch-label ${label.isRemote ? 'remote' : ''}`}>
-                  <rect x={label.x} y={label.y} rx={10} ry={10} width={label.width} height={26} />
-                  <text x={label.x + 10} y={label.y + 17}>
-                    {label.name}
+                  <text x={node.x - 98} y={node.y + 8} className="tree-id">
+                    {node.id}
                   </text>
                 </g>
-              )
-            })}
-          </motion.svg>
-        )}
+              ))}
+
+              {branchLabels.map((label) => {
+                if (!label) {
+                  return null
+                }
+                return (
+                  <g key={label.name} className={`branch-label ${label.isRemote ? 'remote' : ''}`}>
+                    <rect x={label.x} y={label.y} rx={10} ry={10} width={label.width} height={26} />
+                    <text x={label.x + 10} y={label.y + 17}>
+                      {label.name}
+                    </text>
+                  </g>
+                )
+              })}
+            </motion.svg>
+          )}
+        </div>
         {commits.length > 0 ? (
           <div className="tree-minimap" aria-hidden="true">
             <svg width={minimapWidth} height={minimapHeight} viewBox={`0 0 ${width} ${height}`}>

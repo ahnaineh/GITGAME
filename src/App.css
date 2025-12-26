@@ -595,6 +595,15 @@
 .tree-panel {
   height: 100%;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tree-wrap {
+  position: relative;
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 .tree-panel .panel-header.compact {
@@ -620,7 +629,7 @@
 }
 
 .tree-canvas {
-  margin-top: 8px;
+  margin-top: 0;
   padding: 12px;
   border-radius: 18px;
   background: linear-gradient(160deg, rgba(210, 196, 176, 0.35), rgba(197, 182, 160, 0.2));
@@ -715,6 +724,7 @@
   background: rgba(255, 255, 255, 0.85);
   border: 1px solid rgba(108, 143, 132, 0.3);
   box-shadow: 0 12px 24px rgba(20, 50, 47, 0.18);
+  pointer-events: none;
 }
 
 .minimap-line {
