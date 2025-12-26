@@ -26,7 +26,6 @@ export const LevelMap = () => {
       <div className="map-header">
         <div>
           <p className="eyebrow">Map</p>
-          <h2>Chronicle Isles</h2>
           <p className="subtitle">Select a destination to continue your voyage.</p>
         </div>
         <button type="button" onClick={() => setView('game')}>
