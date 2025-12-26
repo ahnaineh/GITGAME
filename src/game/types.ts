@@ -30,7 +30,7 @@ export type RepoState = {
   head: string | null
   commits: Commit[]
   workingTree: Record<string, string>
-  staging: string[]
+  index: Record<string, string>
   conflicts: Record<string, MergeConflict>
   merge: MergeState
   remote: RemoteState
@@ -42,9 +42,10 @@ export type GameSnapshot = {
   commandHistory: string[]
 }
 
-export type Objective = {
+export type Step = {
   id: string
   text: string
+  success?: string
   check: (state: GameSnapshot) => boolean
 }
 
@@ -54,7 +55,7 @@ export type Level = {
   chapter: string
   story: string[]
   completion: string[]
-  objectives: Objective[]
+  steps: Step[]
   hints: string[]
   suggestedCommands: string[]
   referenceCommands: string[]
@@ -72,6 +73,9 @@ export type GameState = GameSnapshot & {
   levelId: number
   output: TerminalLine[]
   hintIndex: number
+  achievements: string[]
+  explainedCommands: string[]
+  dismissedCommandHelp: string[]
   completedLevels: number[]
   unlockedLevelIds: number[]
   view: 'game' | 'map'

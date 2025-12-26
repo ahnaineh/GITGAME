@@ -1,6 +1,41 @@
 import { useEffect, useMemo, useState } from 'react'
-import { getStatusSummary } from '../game/simulator'
+import { getHeadCommit, getStatusSummary } from '../game/simulator'
 import { useGameStore } from '../store/gameStore'
+
+type DiffLine = {
+  type: 'add' | 'remove' | 'context'
+  text: string
+  prefix: string
+}
+
+const buildDiffLines = (base: string, next: string): DiffLine[] => {
+  if (base === next) {
+    return []
+  }
+  const baseLines = base ? base.split('\n') : []
+  const nextLines = next ? next.split('\n') : []
+  const max = Math.max(baseLines.length, nextLines.length)
+  const lines: DiffLine[] = []
+
+  for (let i = 0; i < max; i += 1) {
+    const baseLine = baseLines[i]
+    const nextLine = nextLines[i]
+    if (baseLine === nextLine) {
+      if (baseLine !== undefined) {
+        lines.push({ type: 'context', text: baseLine, prefix: ' ' })
+      }
+      continue
+    }
+    if (baseLine !== undefined) {
+      lines.push({ type: 'remove', text: baseLine, prefix: '-' })
+    }
+    if (nextLine !== undefined) {
+      lines.push({ type: 'add', text: nextLine, prefix: '+' })
+    }
+  }
+
+  return lines
+}
 
 export const WorkingDirectoryPanel = () => {
   const repo = useGameStore((state) => state.repo)
@@ -11,7 +46,7 @@ export const WorkingDirectoryPanel = () => {
   const files = useMemo(
     () =>
       Array.from(
-        new Set([...status.staged, ...status.modified, ...status.untracked, ...status.clean])
+        new Set([...status.conflicts, ...status.staged, ...status.modified, ...status.untracked, ...status.clean])
       ).sort(),
     [status]
   )
@@ -29,6 +64,27 @@ export const WorkingDirectoryPanel = () => {
       setSelectedFile(files[0])
     }
   }, [files, selectedFile])
+
+  const headCommit = getHeadCommit(repo)
+  const headTree = headCommit?.tree ?? {}
+  const selectedStatus = selectedFile
+    ? {
+        conflict: status.conflicts.includes(selectedFile),
+        staged: status.staged.includes(selectedFile),
+        modified: status.modified.includes(selectedFile),
+        untracked: status.untracked.includes(selectedFile),
+        clean: status.clean.includes(selectedFile)
+      }
+    : null
+  const hasStaged = selectedFile ? Object.prototype.hasOwnProperty.call(repo.index, selectedFile) : false
+  const stagedContent = selectedFile ? repo.index[selectedFile] ?? '' : ''
+  const hasHead = selectedFile ? Object.prototype.hasOwnProperty.call(headTree, selectedFile) : false
+  const headContent = selectedFile ? headTree[selectedFile] ?? '' : ''
+  const workingContent = selectedFile ? repo.workingTree[selectedFile] ?? '' : ''
+
+  const diffLines = selectedFile
+    ? buildDiffLines(hasHead ? headContent : '', workingContent)
+    : []
 
   const handleCreate = () => {
     const trimmedName = newFileName.trim()
@@ -176,14 +232,49 @@ export const WorkingDirectoryPanel = () => {
           <p className="section-title">Preview</p>
           {selectedFile ? (
             <div className="editor-stack">
-              <p className="editor-title">Editing {selectedFile}</p>
+              <div className="file-meta">
+                <p className="editor-title">Editing {selectedFile}</p>
+                <div className="file-tags">
+                  {selectedStatus?.conflict ? <span className="tag conflict">Conflict</span> : null}
+                  {selectedStatus?.staged ? <span className="tag staged">Staged</span> : null}
+                  {selectedStatus?.modified ? <span className="tag modified">Modified</span> : null}
+                  {selectedStatus?.untracked ? <span className="tag untracked">Untracked</span> : null}
+                  {selectedStatus?.clean ? <span className="tag clean">Clean</span> : null}
+                </div>
+              </div>
               <textarea
                 className="field editor"
-                value={repo.workingTree[selectedFile] ?? ''}
+                value={workingContent}
                 onChange={(event) => updateFile(selectedFile, event.target.value)}
                 spellCheck={false}
                 aria-label={`Edit ${selectedFile}`}
               />
+              {hasStaged ? (
+                <div className="snapshot">
+                  <p className="editor-title">Staged snapshot</p>
+                  <pre className="snapshot-block">{stagedContent}</pre>
+                </div>
+              ) : null}
+              {hasHead ? (
+                <div className="snapshot">
+                  <p className="editor-title">HEAD snapshot</p>
+                  <pre className="snapshot-block">{headContent}</pre>
+                </div>
+              ) : null}
+              <div className="snapshot">
+                <p className="editor-title">Diff (HEAD → Working)</p>
+                {diffLines.length > 0 ? (
+                  <pre className="diff-block">
+                    {diffLines.map((line, index) => (
+                      <span key={`${line.type}-${index}`} className={`diff-line ${line.type}`}>
+                        {line.prefix} {line.text}
+                      </span>
+                    ))}
+                  </pre>
+                ) : (
+                  <p className="muted">No changes detected.</p>
+                )}
+              </div>
             </div>
           ) : (
             <p className="muted">Select a file to view or edit.</p>

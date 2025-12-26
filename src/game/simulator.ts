@@ -27,10 +27,15 @@ export const formatCommitId = (index: number): string => {
 }
 
 export const getStatusSummary = (repo: RepoState): StatusSummary => {
-  const stagedSet = new Set(repo.staging)
   const headCommit = getHeadCommit(repo)
   const headTree = headCommit?.tree ?? {}
   const conflictSet = new Set(Object.keys(repo.conflicts))
+  const indexFiles = Object.keys(repo.index)
+  const allFiles = new Set([
+    ...Object.keys(headTree),
+    ...Object.keys(repo.workingTree),
+    ...indexFiles
+  ])
 
   const summary: StatusSummary = {
     staged: [],
@@ -40,35 +45,35 @@ export const getStatusSummary = (repo: RepoState): StatusSummary => {
     conflicts: []
   }
 
-  Object.keys(repo.workingTree).forEach((file) => {
+  allFiles.forEach((file) => {
     if (conflictSet.has(file)) {
       summary.conflicts.push(file)
       return
     }
-    const isTracked = Object.prototype.hasOwnProperty.call(headTree, file)
-    const isStaged = stagedSet.has(file)
-    const sameAsHead = isTracked && headTree[file] === repo.workingTree[file]
+    const headValue = headTree[file]
+    const workHasFile = Object.prototype.hasOwnProperty.call(repo.workingTree, file)
+    const workValue = repo.workingTree[file]
+    const indexHasFile = Object.prototype.hasOwnProperty.call(repo.index, file)
+    const indexValue = repo.index[file]
 
-    if (!isTracked) {
-      if (isStaged) {
-        summary.staged.push(file)
-      } else {
-        summary.untracked.push(file)
-      }
+    if (!Object.prototype.hasOwnProperty.call(headTree, file) && !indexHasFile && workHasFile) {
+      summary.untracked.push(file)
       return
     }
 
-    if (sameAsHead) {
-      if (!isStaged) {
-        summary.clean.push(file)
-      }
-      return
-    }
-
-    if (isStaged) {
+    const stagedChanged = indexHasFile && indexValue !== headValue
+    if (stagedChanged) {
       summary.staged.push(file)
-    } else {
+    }
+
+    const compareBase = indexHasFile ? indexValue : headValue
+    const unstagedChanged = workHasFile && compareBase !== undefined && workValue !== compareBase
+    if (unstagedChanged) {
       summary.modified.push(file)
+    }
+
+    if (!stagedChanged && !unstagedChanged && workHasFile && headValue !== undefined) {
+      summary.clean.push(file)
     }
   })
 
@@ -93,6 +98,7 @@ export const buildStatusOutput = (repo: RepoState): string[] => {
   }
 
   const summary = getStatusSummary(repo)
+  const headTree = getHeadCommit(repo)?.tree ?? {}
 
   if (summary.conflicts.length > 0) {
     output.push('Unmerged paths:')
@@ -104,7 +110,8 @@ export const buildStatusOutput = (repo: RepoState): string[] => {
   if (summary.staged.length > 0) {
     output.push('Changes to be committed:')
     summary.staged.forEach((file) => {
-      output.push(`  new file: ${file}`)
+      const isNew = !Object.prototype.hasOwnProperty.call(headTree, file)
+      output.push(`  ${isNew ? 'new file' : 'modified'}: ${file}`)
     })
   }
 
@@ -128,7 +135,7 @@ export const buildStatusOutput = (repo: RepoState): string[] => {
     summary.modified.length === 0 &&
     summary.untracked.length === 0
   ) {
-    output.push('Working tree clean.')
+    output.push('nothing to commit, working tree clean')
   }
 
   return output
@@ -159,9 +166,47 @@ export const buildBranchOutput = (repo: RepoState): string[] => {
   })
 }
 
+const getCommitById = (repo: RepoState, id: string | null): Commit | null => {
+  if (!id) {
+    return null
+  }
+  return repo.commits.find((commit) => commit.id === id) ?? null
+}
+
+const applyTreeDiff = (
+  currentTree: Record<string, string>,
+  baseTree: Record<string, string>,
+  targetTree: Record<string, string>,
+  reverse = false
+): Record<string, string> => {
+  const nextTree = { ...currentTree }
+  const files = new Set([...Object.keys(baseTree), ...Object.keys(targetTree)])
+  files.forEach((file) => {
+    const baseValue = baseTree[file]
+    const targetValue = targetTree[file]
+    if (baseValue === targetValue) {
+      return
+    }
+    if (reverse) {
+      if (baseValue === undefined) {
+        delete nextTree[file]
+      } else {
+        nextTree[file] = baseValue
+      }
+      return
+    }
+    if (targetValue === undefined) {
+      delete nextTree[file]
+    } else {
+      nextTree[file] = targetValue
+    }
+  })
+  return nextTree
+}
+
 const hasUncommittedChanges = (repo: RepoState): boolean => {
   const summary = getStatusSummary(repo)
-  return repo.staging.length > 0 || summary.modified.length > 0 || summary.conflicts.length > 0
+  return summary.staged.length > 0 || summary.modified.length > 0 || summary.conflicts.length > 0
 }
 
 export const applyInit = (repo: RepoState): { repo: RepoState; output: string[]; actions: string[] } => {
@@ -174,6 +219,7 @@ export const applyInit = (repo: RepoState): { repo: RepoState; output: string[];
   nextRepo.branches = { main: null }
   nextRepo.headRef = 'main'
   nextRepo.head = null
+  nextRepo.index = {}
   nextRepo.conflicts = {}
   nextRepo.merge = { inProgress: false, target: null, targetBranch: null }
   nextRepo.remote = { branches: {}, commits: [] }
@@ -217,16 +263,10 @@ export const applyAdd = (
       delete nextRepo.conflicts[file]
       actions.push(`resolve:${file}`)
     }
-    if (!nextRepo.staging.includes(file)) {
-      nextRepo.staging.push(file)
-    }
+    nextRepo.index[file] = nextRepo.workingTree[file]
     actions.push('add')
     actions.push(`add:${file}`)
   })
-
-  if (output.length === 0) {
-    output.push('Added to staging.')
-  }
 
   return { repo: nextRepo, output, actions }
 }
@@ -256,14 +296,14 @@ export const applyCommit = (
     }
   }
 
-  if (nextRepo.staging.length === 0) {
+  if (Object.keys(nextRepo.index).length === 0) {
     return { repo: nextRepo, output: ['No changes staged for commit.'], actions: [] }
   }
 
   const headCommit = getHeadCommit(nextRepo)
   const newTree = { ...(headCommit?.tree ?? {}) }
-  nextRepo.staging.forEach((file) => {
-    newTree[file] = nextRepo.workingTree[file]
+  Object.entries(nextRepo.index).forEach(([file, content]) => {
+    newTree[file] = content
   })
 
   const parents: string[] = []
@@ -287,7 +327,7 @@ export const applyCommit = (
   if (nextRepo.headRef) {
     nextRepo.branches[nextRepo.headRef] = commit.id
   }
-  nextRepo.staging = []
+  nextRepo.index = {}
   if (nextRepo.merge.inProgress) {
     nextRepo.merge = { inProgress: false, target: null, targetBranch: null }
     nextRepo.conflicts = {}
@@ -383,12 +423,163 @@ export const applySwitch = (
       nextRepo.workingTree = { ...commit.tree }
     }
   }
-  nextRepo.staging = []
+  nextRepo.index = {}
 
   return {
     repo: nextRepo,
     output: [`Switched to branch '${name}'.`],
     actions: ['switch', `switch:${name}`]
+  }
+}
+
+export const applyReset = (
+  repo: RepoState,
+  targetId: string | null,
+  hard = false
+): { repo: RepoState; output: string[]; actions: string[] } => {
+  const nextRepo = cloneRepoState(repo)
+  if (!nextRepo.isInitialized) {
+    return {
+      repo: nextRepo,
+      output: ['fatal: not a git repository. Run "git init" to begin.'],
+      actions: []
+    }
+  }
+  if (!targetId) {
+    return { repo: nextRepo, output: ['fatal: commit id required.'], actions: [] }
+  }
+  if (!hard) {
+    return { repo: nextRepo, output: ['Only --hard reset is supported.'], actions: [] }
+  }
+  const commit = getCommitById(nextRepo, targetId)
+  if (!commit) {
+    return { repo: nextRepo, output: [`fatal: unknown commit ${targetId}`], actions: [] }
+  }
+  nextRepo.head = commit.id
+  if (nextRepo.headRef) {
+    nextRepo.branches[nextRepo.headRef] = commit.id
+  }
+  nextRepo.workingTree = { ...commit.tree }
+  nextRepo.index = {}
+  nextRepo.conflicts = {}
+  nextRepo.merge = { inProgress: false, target: null, targetBranch: null }
+
+  return {
+    repo: nextRepo,
+    output: [`HEAD is now at ${commit.id} ${commit.message}`],
+    actions: ['reset', `reset:${commit.id}`]
+  }
+}
+
+export const applyCherryPick = (
+  repo: RepoState,
+  targetId: string | null
+): { repo: RepoState; output: string[]; actions: string[] } => {
+  const nextRepo = cloneRepoState(repo)
+  if (!nextRepo.isInitialized) {
+    return {
+      repo: nextRepo,
+      output: ['fatal: not a git repository. Run "git init" to begin.'],
+      actions: []
+    }
+  }
+  if (!targetId) {
+    return { repo: nextRepo, output: ['fatal: commit id required.'], actions: [] }
+  }
+  if (hasUncommittedChanges(nextRepo)) {
+    return {
+      repo: nextRepo,
+      output: ['Please commit or discard changes before cherry-picking.'],
+      actions: []
+    }
+  }
+  const targetCommit = getCommitById(nextRepo, targetId)
+  if (!targetCommit) {
+    return { repo: nextRepo, output: [`fatal: unknown commit ${targetId}`], actions: [] }
+  }
+  const baseCommit = getCommitById(nextRepo, targetCommit.parents[0] ?? null)
+  const baseTree = baseCommit?.tree ?? {}
+  const headCommit = getHeadCommit(nextRepo)
+  const currentTree = headCommit?.tree ?? {}
+  const newTree = applyTreeDiff(currentTree, baseTree, targetCommit.tree)
+
+  const parents = nextRepo.head ? [nextRepo.head] : []
+  const commit: Commit = {
+    id: formatCommitId(nextRepo.commits.length + 1),
+    message: `Cherry-pick: ${targetCommit.message}`,
+    tree: newTree,
+    timestamp: Date.now(),
+    parents
+  }
+
+  nextRepo.commits.push(commit)
+  nextRepo.head = commit.id
+  if (nextRepo.headRef) {
+    nextRepo.branches[nextRepo.headRef] = commit.id
+  }
+  nextRepo.workingTree = { ...newTree }
+  nextRepo.index = {}
+
+  return {
+    repo: nextRepo,
+    output: [`[${nextRepo.headRef ?? 'main'} ${commit.id}] ${commit.message}`],
+    actions: ['cherry-pick', `cherry-pick:${targetCommit.id}`]
+  }
+}
+
+export const applyRevert = (
+  repo: RepoState,
+  targetId: string | null
+): { repo: RepoState; output: string[]; actions: string[] } => {
+  const nextRepo = cloneRepoState(repo)
+  if (!nextRepo.isInitialized) {
+    return {
+      repo: nextRepo,
+      output: ['fatal: not a git repository. Run "git init" to begin.'],
+      actions: []
+    }
+  }
+  if (!targetId) {
+    return { repo: nextRepo, output: ['fatal: commit id required.'], actions: [] }
+  }
+  if (hasUncommittedChanges(nextRepo)) {
+    return {
+      repo: nextRepo,
+      output: ['Please commit or discard changes before reverting.'],
+      actions: []
+    }
+  }
+  const targetCommit = getCommitById(nextRepo, targetId)
+  if (!targetCommit) {
+    return { repo: nextRepo, output: [`fatal: unknown commit ${targetId}`], actions: [] }
+  }
+  const baseCommit = getCommitById(nextRepo, targetCommit.parents[0] ?? null)
+  const baseTree = baseCommit?.tree ?? {}
+  const headCommit = getHeadCommit(nextRepo)
+  const currentTree = headCommit?.tree ?? {}
+  const newTree = applyTreeDiff(currentTree, baseTree, targetCommit.tree, true)
+
+  const parents = nextRepo.head ? [nextRepo.head] : []
+  const commit: Commit = {
+    id: formatCommitId(nextRepo.commits.length + 1),
+    message: `Revert: ${targetCommit.message}`,
+    tree: newTree,
+    timestamp: Date.now(),
+    parents
+  }
+
+  nextRepo.commits.push(commit)
+  nextRepo.head = commit.id
+  if (nextRepo.headRef) {
+    nextRepo.branches[nextRepo.headRef] = commit.id
+  }
+  nextRepo.workingTree = { ...newTree }
+  nextRepo.index = {}
+
+  return {
+    repo: nextRepo,
+    output: [`[${nextRepo.headRef ?? 'main'} ${commit.id}] ${commit.message}`],
+    actions: ['revert', `revert:${targetCommit.id}`]
   }
 }
 
@@ -510,6 +701,7 @@ export const applyMerge = (
     if (targetCommit) {
       nextRepo.workingTree = { ...targetCommit.tree }
     }
+    nextRepo.index = {}
     return {
       repo: nextRepo,
       output: ['Fast-forward merge completed.'],
@@ -531,6 +723,7 @@ export const applyMerge = (
     if (targetCommit) {
       nextRepo.workingTree = { ...targetCommit.tree }
     }
+    nextRepo.index = {}
     return {
       repo: nextRepo,
       output: ['Fast-forward', `Updated ${nextRepo.headRef ?? 'main'} to ${targetHead}.`],
@@ -583,7 +776,7 @@ export const applyMerge = (
   })
 
   nextRepo.workingTree = mergedTree
-  nextRepo.staging = []
+  nextRepo.index = {}
 
   if (Object.keys(conflicts).length > 0) {
     nextRepo.conflicts = conflicts
@@ -627,7 +820,7 @@ export const applyMergeAbort = (
   }
   const headCommit = getHeadCommit(nextRepo)
   nextRepo.workingTree = headCommit ? { ...headCommit.tree } : {}
-  nextRepo.staging = []
+  nextRepo.index = {}
   nextRepo.conflicts = {}
   nextRepo.merge = { inProgress: false, target: null, targetBranch: null }
 
@@ -720,6 +913,7 @@ export const applyPull = (
     if (commit) {
       nextRepo.workingTree = { ...commit.tree }
     }
+    nextRepo.index = {}
     return {
       repo: nextRepo,
       output: [...fetchResult.output, 'Fast-forward pull completed.'],

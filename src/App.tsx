@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import './App.css'
+import { CommandCoach } from './components/CommandCoach'
 import { CommitTree } from './components/CommitTree'
 import { LeftSidebar } from './components/LeftSidebar'
 import { LevelMap } from './components/LevelMap'
@@ -32,6 +33,7 @@ function App() {
                 <CommitTree />
               </div>
               <Terminal />
+              <CommandCoach />
             </div>
           )}
         </main>

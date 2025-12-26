@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import { getLevelById, levels } from '../game/levels'
+import { countCompletedSteps, evaluateSteps, findNextStepIndex } from '../game/progress'
 import { useGameStore } from '../store/gameStore'
 
 export const StoryPanel = () => {
@@ -13,21 +14,18 @@ export const StoryPanel = () => {
 
   const level = getLevelById(levelId)
   const snapshot = { repo, actions, commandHistory }
-  const objectives = level.objectives.map((objective) => ({
-    ...objective,
-    done: objective.check(snapshot)
-  }))
-  const completedCount = objectives.filter((objective) => objective.done).length
-  const isComplete = completedCount === objectives.length
+  const steps = evaluateSteps(level, snapshot)
+  const completedCount = countCompletedSteps(steps)
+  const isComplete = completedCount === steps.length
   const levelIndex = levels.findIndex((entry) => entry.id === level.id)
   const hasNextLevel = levelIndex >= 0 && levelIndex < levels.length - 1
   const revealedHints = level.hints.slice(0, hintIndex)
   const currentHint = hintIndex > 0 ? level.hints[hintIndex - 1] : null
-  const nextObjectiveIndex = objectives.findIndex((objective) => !objective.done)
-  const nextObjective = nextObjectiveIndex >= 0 ? objectives[nextObjectiveIndex] : null
-  const nextCommand =
-    nextObjectiveIndex >= 0 ? level.suggestedCommands[nextObjectiveIndex] ?? null : null
+  const nextStepIndex = findNextStepIndex(steps)
+  const nextStep = nextStepIndex >= 0 ? steps[nextStepIndex] : null
+  const nextCommand = nextStepIndex >= 0 ? level.suggestedCommands[nextStepIndex] ?? null : null
   const showCommand = nextCommand && nextCommand.startsWith('git ') ? nextCommand : null
+  const lastCompleted = [...steps].reverse().find((step) => step.done)
 
   return (
     <section className="panel guide-panel">
@@ -39,28 +37,40 @@ export const StoryPanel = () => {
       >
         <p className="chapter">{level.chapter}</p>
         <h2>{level.title}</h2>
-        <p className="progress">Objectives {completedCount}/{objectives.length}</p>
+        <p className="progress">Steps {completedCount}/{steps.length}</p>
       </motion.div>
 
       <div className="story-lines">
         {level.story.map((line) => (
           <p key={line}>{line}</p>
         ))}
-        <p className="callout">Type commands in the Command Console to progress.</p>
+        <p className="callout">Steps unlock in order. Type commands in the Command Console to progress.</p>
       </div>
 
       <div className="objective-list">
-        <p className="section-title">Objectives</p>
+        <p className="section-title">Steps</p>
         <ul>
-          {objectives.map((objective) => (
-            <li key={objective.id} className={objective.done ? 'done' : ''}>
+          {steps.map((step) => {
+            const className = step.done ? 'done' : step.locked ? 'locked' : 'active'
+            const marker = step.done ? '◆' : step.locked ? '•' : '▶'
+            return (
+            <li key={step.id} className={className}>
               <span className="marker" aria-hidden="true">
-                {objective.done ? '◆' : '◇'}
+                {marker}
               </span>
-              {objective.text}
+              {step.text}
             </li>
-          ))}
+          )})}
         </ul>
+      </div>
+
+      <div className="momentum">
+        <p className="section-title">Momentum</p>
+        {lastCompleted?.success ? (
+          <p>{lastCompleted.success}</p>
+        ) : (
+          <p className="muted">Complete the first step to build momentum.</p>
+        )}
       </div>
 
       {isComplete ? (
@@ -74,8 +84,8 @@ export const StoryPanel = () => {
 
       <div className="suggestions">
         <p className="section-title">Next Step</p>
-        {nextObjective ? (
-          <p>{nextObjective.text}</p>
+        {nextStep ? (
+          <p>{nextStep.text}</p>
         ) : (
           <p className="muted">All steps completed.</p>
         )}
